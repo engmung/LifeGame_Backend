@@ -318,6 +318,17 @@ class NotionManager:
             print(f"Error updating character: {str(e)}")
             raise
 
+    async def archive_quest(self, quest_db_id: str, quest_id: str):
+        """퀘스트를 아카이브(삭제)합니다."""
+        try:
+            self.client.pages.update(
+                page_id=quest_id,
+                archived=True
+            )
+        except Exception as e:
+            print(f"Error archiving quest: {str(e)}")
+            raise
+
     async def generate_daily_timeline(self, diary_db_id: str, target_date: datetime, activities: List[Dict]) -> str:
         try:
             activities_list = [Activity(**activity) for activity in activities]

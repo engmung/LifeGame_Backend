@@ -315,6 +315,33 @@ async def generate_quests_endpoint(character_name: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+from typing import List
+
+class DeleteQuestsRequest(BaseModel):
+    questIds: List[str]
+
+@app.delete("/quests/delete/{character_name}")
+async def delete_quests(character_name: str, request: DeleteQuestsRequest):
+    try:
+        user_data = await admin_notion.get_user_data(character_name)
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user_notion = NotionManager(user_data["notion_api_key"])
+        
+        for quest_id in request.questIds:
+            await user_notion.archive_quest(
+                user_data["database_ids"]["quest_db_id"], 
+                quest_id
+            )
+        
+        return {
+            "status": "success",
+            "message": f"Successfully deleted {len(request.questIds)} quests"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/daily/wrap-up/{character_name}")
 async def daily_wrap_up(character_name: str, request: DailyWrapUpRequest):
     """일일 활동 요약 생성"""
