@@ -139,18 +139,17 @@ class NotionManager:
             print(f"Error adding user to admin DB: {str(e)}")
             raise
 
-    async def save_character(self, db_id: str, name: str, mbti: str):
-        try:
-            return self.client.pages.create(
-                parent={"database_id": db_id},
-                properties={
-                    "Name": {"title": [{"text": {"content": name}}]},
-                    "MBTI": {"rich_text": [{"text": {"content": mbti}}]},
-                }
-            )
-        except Exception as e:
-            print(f"Error saving character: {str(e)}")
-            raise
+    async def save_character(self, db_id: str, name: str, mbti: str, goals: str = None, preferences: str = None):
+        """캐릭터 데이터베이스에 새 캐릭터를 저장합니다."""
+        return self.client.pages.create(
+            parent={"database_id": db_id},
+            properties={
+                "Name": {"title": [{"text": {"content": name}}]},
+                "MBTI": {"rich_text": [{"text": {"content": mbti}}]},
+                "Goals": {"rich_text": [{"text": {"content": goals or ""}}]},
+                "Preferences": {"rich_text": [{"text": {"content": preferences or ""}}]}
+            }
+        )
 
     async def get_active_quests(self, quest_db_id: str) -> List[Dict]:
         try:
@@ -295,6 +294,30 @@ class NotionManager:
             print(f"Error getting daily activities: {str(e)}")
             raise
 
+    async def update_character(self, db_id: str, character_data: dict):
+        try:
+            response = self.client.databases.query(
+                database_id=db_id,
+                filter={"property": "Name", "title": {"equals": character_data["characterName"]}}
+            )
+            
+            if not response["results"]:
+                raise ValueError(f"Character {character_data['characterName']} not found")
+                
+            character_page = response["results"][0]
+            
+            self.client.pages.update(
+                page_id=character_page["id"],
+                properties={
+                    "MBTI": {"rich_text": [{"text": {"content": character_data["mbti"]}}]},
+                    "Goals": {"rich_text": [{"text": {"content": character_data.get("goals", "")}}]},
+                    "Preferences": {"rich_text": [{"text": {"content": character_data.get("preferences", "")}}]}
+                }
+            )
+        except Exception as e:
+            print(f"Error updating character: {str(e)}")
+            raise
+
     async def generate_daily_timeline(self, diary_db_id: str, target_date: datetime, activities: List[Dict]) -> str:
         try:
             activities_list = [Activity(**activity) for activity in activities]
@@ -422,3 +445,5 @@ class NotionManager:
         except Exception as e:
             print(f"Error generating daily timeline: {str(e)}")
             raise
+
+        

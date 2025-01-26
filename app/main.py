@@ -31,6 +31,8 @@ app.add_middleware(
 class CharacterSettings(BaseModel):
     characterName: str
     mbti: str
+    goals: str | None = None
+    preferences: str | None = None
     notionApiKey: str
     notionPageUrl: str
 
@@ -147,6 +149,26 @@ async def handle_cli_command():
     else:
         print("Please provide a user name with --user argument")
 
+@app.put("/character/update/{character_name}")
+async def update_character(character_name: str, character_data: CharacterSettings):
+    try:
+        user_data = await admin_notion.get_user_data(character_name)
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        user_notion = NotionManager(user_data["notion_api_key"])
+        await user_notion.update_character(
+            user_data["database_ids"]["character_db_id"],
+            character_data.dict()
+        )
+        
+        return {
+            "status": "success",
+            "message": "Character updated successfully"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # API endpoints
 @app.get("/")
 async def read_root():
@@ -208,37 +230,81 @@ async def complete_quest(character_name: str, quest_data: dict):
 
 @app.post("/character/create")
 async def create_character(settings: CharacterSettings):
-    """새 캐릭터 생성 및 설정"""
     try:
+        # 기존 사용자 확인
+        existing_user = await admin_notion.get_user_data(settings.characterName)
+        
         notion = NotionManager(settings.notionApiKey)
         page_id = notion.extract_page_id(settings.notionPageUrl)
-        databases = await notion.search_databases(page_id)
         
-        await notion.save_character(
-            databases["character_db_id"],
-            settings.characterName,
-            settings.mbti
-        )
-        
-        await notion.add_user_to_admin_db(
-            settings.dict(),
-            databases
-        )
-        
-        return {
-            "status": "success",
-            "message": "Character created successfully",
-            "data": {
-                "characterName": settings.characterName,
-                "mbti": settings.mbti,
-                "databases": databases
+        if existing_user:
+            # 기존 사용자의 경우 설정 업데이트
+            user_notion = NotionManager(existing_user["notion_api_key"])
+            await user_notion.update_character(
+                existing_user["database_ids"]["character_db_id"],
+                settings.dict()
+            )
+            return {
+                "status": "success",
+                "message": "Character settings updated successfully",
+                "data": {
+                    "characterName": settings.characterName,
+                    "mbti": settings.mbti,
+                    "goals": settings.goals,
+                    "preferences": settings.preferences
+                }
             }
-        }
+        else:
+            # 새 사용자 생성
+            databases = await notion.search_databases(page_id)
+            await notion.save_character(
+                databases["character_db_id"],
+                settings.characterName,
+                settings.mbti,
+                settings.goals,
+                settings.preferences
+            )
+            await notion.add_user_to_admin_db(settings.dict(), databases)
+            return {
+                "status": "success",
+                "message": "Character created successfully",
+                "data": {
+                    "characterName": settings.characterName,
+                    "mbti": settings.mbti,
+                    "goals": settings.goals,
+                    "preferences": settings.preferences,
+                    "databases": databases
+                }
+            }
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         print("Error:", str(e))
         raise HTTPException(status_code=500, detail=f"Failed to process request: {str(e)}")
+
+@app.post("/activities/log/{character_name}")
+async def log_activity(character_name: str, activity_data: dict):
+    """활동 로그만 저장"""
+    try:
+        user_data = await admin_notion.get_user_data(character_name)
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user_notion = NotionManager(user_data["notion_api_key"])
+        
+        await user_notion.save_activity_log(
+            user_data["database_ids"]["activity_db_id"],
+            activity_data["activityName"],
+            activity_data["timerDetails"],
+            activity_data["review"]
+        )
+        
+        return {
+            "status": "success",
+            "message": "Activity logged successfully"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/quests/generate/{character_name}")
 async def generate_quests_endpoint(character_name: str):
