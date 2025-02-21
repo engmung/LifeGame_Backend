@@ -19,7 +19,7 @@ class NotionClient:
         return self.client.blocks.children.list(page_id)
     
     async def search_databases(self, block_id: str) -> Dict[str, str]:
-        """페이지에서 시스템 데이터베이스들을 찾습니다."""
+        """페이지에서 필요한 데이터베이스들을 찾습니다."""
         databases = {}
         print("Searching for system databases...")
         
@@ -30,33 +30,19 @@ class NotionClient:
                 if block["type"] == "child_database":
                     title = block["child_database"]["title"].lower()
                     print(f"Found database: {title}")
-                    self._map_database(databases, title, block["id"])
                     
-                    # DBIndex를 찾았다면 다른 DB도 근처에 있을 것입니다
-                    if "index" in title or "dbindex" in title:
-                        print("Found DBIndex, checking nearby blocks for other databases...")
-                
+                    # Character DB와 Diary DB만 찾음
+                    if "character" in title:
+                        databases["character_db_id"] = block["id"]
+                    elif "diary" in title:
+                        databases["diary_db_id"] = block["id"]
+            
             print(f"Found databases: {databases}")
             return databases
             
         except Exception as e:
             print(f"Error while searching databases: {str(e)}")
             raise
-
-    def _map_database(self, databases: Dict[str, str], title: str, db_id: str):
-        """데이터베이스 제목을 기반으로 매핑합니다."""
-        print(f"Mapping database: {title} ({db_id})")
-        # 제목에 정확히 포함된 단어로 매칭
-        if "dbindex" in title:
-            databases["dbindex_db_id"] = db_id
-        elif "character db" in title:
-            databases["character_db_id"] = db_id
-        elif "activity log db" in title or "activity db" in title:
-            databases["activity_db_id"] = db_id
-        elif "quest db" in title:
-            databases["quest_db_id"] = db_id
-        elif "diary db" in title:
-            databases["diary_db_id"] = db_id
 
     async def save_character(self, db_id: str, name: str, mbti: str):
         """캐릭터 데이터베이스에 새 캐릭터를 저장합니다."""
@@ -77,8 +63,6 @@ class NotionClient:
             properties={
                 "Config Name": {"title": [{"text": {"content": character_name}}]},
                 "Character DB ID": {"rich_text": [{"text": {"content": db_ids["character_db_id"]}}]},
-                "Activity DB ID": {"rich_text": [{"text": {"content": db_ids["activity_db_id"]}}]},
-                "Quest DB ID": {"rich_text": [{"text": {"content": db_ids["quest_db_id"]}}]},
-                "Diary DB ID": {"rich_text": [{"text": {"content": db_ids["diary_db_id"]}}]},
+                "Diary DB ID": {"rich_text": [{"text": {"content": db_ids["diary_db_id"]}}]}
             }
         )

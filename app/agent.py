@@ -1,34 +1,31 @@
 from pydantic import BaseModel
 from typing import List
 from pydantic_ai import Agent, RunContext
-import json
-import os
-
-from pydantic import BaseModel
-from typing import List
-from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIModel
-from openai import OpenAI
+import google.generativeai as genai
 import os
 import json
 
 class ReasoningResult(BaseModel):
-    title: str
-    content: str
+    analysis: str
+    questions: List[str]
 
-class Quest(BaseModel):
-    title: str
-    type: str  # "Main Quest" or "Sub Quest"
-    description: str
+class QuestionsResponse(BaseModel):
+    questions: List[str]
 
-class QuestResponse(BaseModel):
-    quests: List[Quest]
-
-class QuestGenerator:
+class ReflectionAnalyzer:
     def __init__(self):
-        self.deepseek_client = OpenAI(
-            api_key=os.getenv("DEEPSEEK_API_KEY"),
-            base_url="https://api.deepseek.com/v1"
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        self.generation_config = {
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "top_k": 64,
+            "max_output_tokens": 65536,
+            "response_mime_type": "text/plain",
+        }
+        self.model = genai.GenerativeModel(
+            model_name="gemini-2.0-flash-thinking-exp-01-21",
+            generation_config=self.generation_config,
         )
         
         self.gpt4_mini_model = OpenAIModel(
@@ -36,121 +33,117 @@ class QuestGenerator:
             api_key=os.getenv("OPENAI_API_KEY")
         )
         
-        self.quest_agent = Agent(
+        self.formatter_agent = Agent(
             self.gpt4_mini_model,
             deps_type=dict,
-            result_type=QuestResponse,
-            system_prompt="""분석을 바탕으로 퀘스트를 정리해주세요. 보상은 설명에 함께 넣어주세요. 메인퀘스트 2개, 서브퀘스트 2개로 정리해주세요.
-            응답은 반드시 다음 JSON 형식으로만 출력해야 하며, 그 외의 설명이나 마크다운은 포함하지 않습니다:
-            {"quests": [{"title": "퀘스트 제목", "type": "Main Quest|Sub Quest", "description": "설명"}]}"""
-        )
-
-        @self.quest_agent.system_prompt
-        def add_mbti_context(ctx: RunContext[dict]) -> str:
-            return f"""MBTI 유형 {ctx.deps['mbti']} 특성을 고려하여:
-            - {ctx.deps['mbti'][:2]}: {'외향적인 활동' if 'E' in ctx.deps['mbti'] else '내면적 성장'}에 초점
-            - {ctx.deps['mbti'][2:3]}: {'구체적이고 실제적인' if 'S' in ctx.deps['mbti'] else '추상적이고 창의적인'} 목표 강조
-            - {ctx.deps['mbti'][3:4]}: {'논리적' if 'T' in ctx.deps['mbti'] else '감정적'} 측면 고려
-            - {ctx.deps['mbti'][4:5]}: {'계획적' if 'J' in ctx.deps['mbti'] else '유연한'} 퀘스트 구성"""
-
-    async def get_reasoning(self, mbti: str, goals: str, preferences: str) -> ReasoningResult:
-        system_prompt = """당신은 사용자의 MBTI, 목표, 선호도를 분석하여 4개의 단기 퀘스트를 제안하는 전문가입니다.
-        사용자의 성향과 목표를 통합적으로 분석하고, 맞춤 퀘스트를 만들어주세요. 퀘스트는 하루 1~2시간 내에 완료할 수 있어야 합니다.
-        퀘스트는 공부, 프로젝트, 산책, 독서와 같은 활동의 느낌의 실용적인 내용으로 구성해주세요. 가상의 뱃지나 칭호를 주는 등 재미있는 보상도 넣어주세요."""
-        
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"""다음 사용자 정보를 바탕으로 분석해주세요:
-            - MBTI: {mbti}
-            - 목표: {goals}
-            - 선호도: {preferences}"""}
-        ]
-        
-        response = self.deepseek_client.chat.completions.create(
-            model="deepseek-reasoner",
-            messages=messages
-        )
-        
-        content = response.choices[0].message.content
-        return ReasoningResult(
-            title="사용자 분석 결과",
-            content=content
-        )
-
-    async def generate_quests(self, mbti: str, goals: str, preferences: str) -> List[Quest]:
-        try:
-            # 1. Get reasoning from DeepSeek
-            reasoning = await self.get_reasoning(mbti, goals, preferences)
-            print(f"Reasoning result: {reasoning.content}")
+            result_type=QuestionsResponse,
+            system_prompt="""Gemini가 생성한 분석과 질문을 정리하여 노션 페이지에 적합한 형식으로 변환합니다.
             
-            # 2. Generate quests based on reasoning
-            result = await self.quest_agent.run(
-                f"""다음 분석 결과를 바탕으로 하루 1~2시간 내에 완료할 수 있는 간단한 퀘스트를 생성해주세요:
-                {reasoning.content}""",
-                deps={
-                    "mbti": mbti,
-                    "goals": goals,
-                    "preferences": preferences
-                }
+            응답은 반드시 다음 JSON 형식으로만 출력해야 하며, 그 외의 설명이나 마크다운은 포함하지 않습니다:
+            {"questions": ["질문1", "질문2", "질문3", "질문4", "질문5"]}"""
+        )
+        
+        self.character_info = {
+            'goals': None,
+            'preferences': None
+        }
+
+    async def get_gemini_analysis(self, journal_content: str, mbti: str) -> ReasoningResult:
+        """Gemini를 사용하여 일기 분석과 질문 생성"""
+        prompt = f"""당신은 사용자의 MBTI, 목표, 선호도를 고려하여 일기를 분석하고 의미 있는 자기성찰 질문을 생성하는 전문가입니다.
+        일기에서 드러나는 사고방식, 행동 패턴, 감정의 흐름을 파악하고, 사용자의 성장을 돕는 통찰력 있는 질문을 제시해주세요.
+        
+        사용자 정보:
+        - MBTI: {mbti}
+        - 목표: {self.character_info.get('goals', '정보 없음')}
+        - 선호도: {self.character_info.get('preferences', '정보 없음')}
+        
+        분석과 질문 생성 시 다음 사항을 고려해주세요:
+        1. MBTI 성향과의 연관성
+        2. 감정과 사고의 패턴
+        3. 행동과 결정의 동기
+        4. 현재 상황과 장기 목표와의 관계
+        5. 선호하는 학습/행동 방식과의 연관성
+        6. 잠재적 고정관념이나 편향
+        7. 성장 가능성과 개선점
+        
+        특히 다음 사항들을 분석에 반영해주세요:
+        - 사용자의 목표(AI/자동화/블록체인 학습, 창업)와 현재 상황의 연관성
+        - 자기주도적 학습 선호도와 현재 대처 방식의 관계
+        - 실전 중심의 학습 스타일이 현재 상황에 어떻게 적용될 수 있는지
+        
+        분석과 질문을 다음과 같은 형식으로 작성해주세요:
+
+        [분석]
+        여기에 2-3문단의 분석을 작성해주세요.
+
+        [질문]
+        1. 첫 번째 질문
+        2. 두 번째 질문
+        ...
+        (7-8개의 질문 작성)
+
+        일기 내용:
+        {journal_content}"""
+
+        chat = self.model.start_chat()
+        response = chat.send_message(prompt)
+        content = response.text
+        
+        # 분석과 질문 부분 분리
+        try:
+            parts = content.split('[질문]')
+            analysis = parts[0].replace('[분석]', '').strip()
+            questions_text = parts[1].strip()
+            
+            questions = []
+            for line in questions_text.split('\n'):
+                line = line.strip()
+                if line and '.' in line:
+                    question = line.split('.', 1)[1].strip()
+                    questions.append(question)
+        except Exception as e:
+            print(f"Error parsing Gemini response: {str(e)}")
+            print(f"Raw response: {content}")
+            analysis = content
+            questions = []
+        
+        return ReasoningResult(
+            analysis=analysis,
+            questions=questions
+        )
+
+    async def generate_questions(self, journal_content: str, mbti: str, goals: str = None, preferences: str = None) -> List[str]:
+        try:
+            # 캐릭터 정보 업데이트
+            self.character_info['goals'] = goals
+            self.character_info['preferences'] = preferences
+            
+            # 1. Gemini로 분석 및 초기 질문 생성
+            result = await self.get_gemini_analysis(journal_content, mbti)
+            print(f"Gemini analysis: {result.analysis}")
+            print(f"Gemini questions: {result.questions}")
+            
+            # 2. GPT-4o-mini로 질문 정제 및 포맷팅
+            formatted = await self.formatter_agent.run(
+                f"""Gemini가 생성한 다음 분석과 질문들을 5개의 명확하고 통찰력 있는 질문으로 정리해주세요.
+                
+분석 내용:
+{result.analysis}
+
+생성된 질문들:
+{json.dumps(result.questions, ensure_ascii=False, indent=2)}""",
+                deps={"mbti": mbti}
             )
             
-            return result.data.quests
+            return formatted.data.questions
             
         except Exception as e:
-            print(f"Error generating quests: {str(e)}")
-            raise
-
-
-class Activity(BaseModel):
-    name: str
-    start: str
-    end: str
-    duration: int
-    review: str
-
-class DailyInsightGenerator:
-    def __init__(self):
-        self.agent = Agent(
-            "gpt-4o-mini",
-            system_prompt="""당신은 사용자의 하루 활동을 분석하고 인사이트를 제공하는 전문가입니다.
-
-            응답은 반드시 다음과 같은 JSON 형식이어야 합니다:
-            {
-                "summary": "하루 전체 요약 (1-2문장)",
-                "patterns": ["발견된 주요 패턴 1", "패턴 2"],
-                "insights": ["주요 인사이트 1", "인사이트 2"],
-                "suggestions": ["개선 제안 1", "제안 2"]
-            }
-            """
-        )
-
-    async def analyze_daily_activities(self, activities: List[Activity], mbti: str = None) -> dict:
-        try:
-            activities_json = [
-                {
-                    "name": a.name,
-                    "start": a.start,
-                    "end": a.end,
-                    "duration": a.duration,
-                    "review": a.review
-                } for a in activities
+            print(f"Error in generate_questions: {str(e)}")
+            return [
+                "오늘 하루 동안 가장 강하게 느낀 감정은 무엇이었나요? 그 감정이 들었던 이유는 무엇일까요?",
+                "오늘의 경험 중에서 자신에 대해 새롭게 알게 된 점이 있다면 무엇인가요?",
+                "오늘 했던 선택들 중에서 다르게 할 수 있었던 것이 있었나요?",
+                "오늘 하루를 통해 자신의 어떤 가치관이나 신념이 확인되었나요?",
+                "내일의 자신에게 해주고 싶은 이야기가 있다면 무엇인가요?"
             ]
-
-            prompt = f"""다음 활동 데이터를 분석하여 JSON 형식으로만 응답해주세요:
-
-활동: {json.dumps(activities_json, ensure_ascii=False)}
-MBTI: {mbti if mbti else '정보 없음'}
-
-분석 관점:
-1. 시간대별 활동 패턴
-2. 활동 시간 분포
-3. 집중도와 휴식 패턴
-4. 활동 카테고리
-5. MBTI 성향 연관성"""
-
-            result = await self.agent.run(prompt)
-            return json.loads(result.data if isinstance(result.data, str) else json.dumps(result.data))
-            
-        except Exception as e:
-            print(f"Error analyzing activities: {str(e)}")
-            raise
