@@ -246,6 +246,70 @@ class NotionManager:
             print(f"Error getting today's journal: {str(e)}")
             raise
 
+    async def add_user_to_admin_db(self, user_data: dict, database_ids: Dict[str, str]):
+        try:
+            user_page = self.admin_client.pages.create(
+                parent={"database_id": self.users_db_id},
+                properties={
+                    "Name": {"title": [{"text": {"content": user_data["characterName"]}}]},
+                    "Status": {"select": {"name": "Active"}}
+                }
+            )
+
+            children = [
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {"rich_text": [{"text": {"content": f"Notion URL: {user_data['notionPageUrl']}"}}]}
+                },
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {"rich_text": [{"text": {"content": f"Notion API Key: {user_data['notionApiKey']}"}}]}
+                },
+                {
+                    "object": "block",
+                    "type": "code",
+                    "code": {
+                        "language": "json",
+                        "rich_text": [{"text": {"content": json.dumps(database_ids, ensure_ascii=False)}}]
+                    }
+                }
+            ]
+
+            self.admin_client.blocks.children.append(
+                block_id=user_page["id"],
+                children=children
+            )
+            return user_page["id"]
+        except Exception as e:
+            print(f"Error adding user to admin DB: {str(e)}")
+            raise
+
+    async def update_character(self, db_id: str, character_data: dict):
+        try:
+            response = self.client.databases.query(
+                database_id=db_id,
+                filter={"property": "Name", "title": {"equals": character_data["characterName"]}}
+            )
+            
+            if not response["results"]:
+                raise ValueError(f"Character {character_data['characterName']} not found")
+                
+            character_page = response["results"][0]
+            
+            self.client.pages.update(
+                page_id=character_page["id"],
+                properties={
+                    "MBTI": {"rich_text": [{"text": {"content": character_data["mbti"]}}]},
+                    "Goals": {"rich_text": [{"text": {"content": character_data.get("goals", "")}}]},
+                    "Preferences": {"rich_text": [{"text": {"content": character_data.get("preferences", "")}}]}
+                }
+            )
+        except Exception as e:
+            print(f"Error updating character: {str(e)}")
+            raise
+
     async def generate_reflection_questions(
         self, 
         diary_db_id: str, 
