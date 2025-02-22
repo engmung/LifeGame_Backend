@@ -37,9 +37,15 @@ class ReflectionAnalyzer:
             self.gpt4_mini_model,
             deps_type=dict,
             result_type=QuestionsResponse,
-            system_prompt="""Gemini가 생성한 분석과 질문을 정리하여 노션 페이지에 적합한 형식으로 변환합니다.
+            system_prompt="""Gemini가 생성한 분석과 질문들을 검토하여, 가장 통찰력 있고 깊이 있는 질문 5개를 선택하고 정제하여 제시합니다.
+            선택 기준:
+            1. 구체적이고 명확한 질문
+            2. 깊은 자기성찰을 유도하는 질문
+            3. 감정, 행동, 가치관을 균형있게 다루는 질문
+            4. MBTI 특성을 고려한 질문
+            5. 사용자의 목표와 선호도를 반영한 질문
             
-            응답은 반드시 다음 JSON 형식으로만 출력해야 하며, 그 외의 설명이나 마크다운은 포함하지 않습니다:
+            응답은 반드시 다음 JSON 형식으로만 출력해야 하며, 정확히 5개의 질문이어야 합니다:
             {"questions": ["질문1", "질문2", "질문3", "질문4", "질문5"]}"""
         )
         
@@ -48,30 +54,42 @@ class ReflectionAnalyzer:
             'preferences': None
         }
 
-    async def get_gemini_analysis(self, journal_content: str, mbti: str) -> ReasoningResult:
-        """Gemini를 사용하여 일기 분석과 질문 생성"""
-        prompt = f"""당신은 사용자의 MBTI, 목표, 선호도를 고려하여 일기를 분석하고 의미 있는 자기성찰 질문을 생성하는 전문가입니다.
-        일기에서 드러나는 사고방식, 행동 패턴, 감정의 흐름을 파악하고, 사용자의 성장을 돕는 통찰력 있는 질문을 제시해주세요.
+    async def get_gemini_analysis(self, journal_data: dict, mbti: str) -> ReasoningResult:
+        """Gemini를 사용하여 활동 기록과 일기를 분석하고 성찰 질문 생성"""
+        
+        # 타임라인 데이터를 문자열로 변환
+        timeline_text = ""
+        for activity in journal_data["timeline"]:
+            timeline_text += f"\n시간: {activity['time']}"
+            timeline_text += f"\n활동: {activity['activity']}"
+            if 'thoughts' in activity:
+                timeline_text += f"\n생각/감정: {activity['thoughts']}"
+            timeline_text += "\n"
+
+        prompt = f"""당신은 사용자의 하루 활동과 일기를 깊이있게 이해하고, 의미 있는 자기성찰을 돕는 전문가입니다.
+        객관적인 활동 기록과 순간의 감정, 그리고 하루를 정리한 일기를 모두 고려하여 사용자의 더 깊은 자기이해를 돕는 분석과 질문을 제시해주세요.
         
         사용자 정보:
         - MBTI: {mbti}
         - 목표: {self.character_info.get('goals', '정보 없음')}
         - 선호도: {self.character_info.get('preferences', '정보 없음')}
         
-        분석과 질문 생성 시 다음 사항을 고려해주세요:
-        1. MBTI 성향과의 연관성
-        2. 감정과 사고의 패턴
-        3. 행동과 결정의 동기
-        4. 현재 상황과 장기 목표와의 관계
-        5. 선호하는 학습/행동 방식과의 연관성
-        6. 잠재적 고정관념이나 편향
-        7. 성장 가능성과 개선점
+        다음 관점들을 고려하여 분석과 5개의 질문을 생성해주세요:
+        1. 순간의 감정과 회고 시점의 감정 차이
+        2. 활동과 감정의 연관성
+        3. 하루 동안의 감정/생각 변화 패턴
+        4. 현재 상황과 장기 목표의 연결점
+        5. 사용자의 행동 패턴과 동기
+        6. 잠재된 고정관념이나 편향된 시각
+        7. MBTI 특성과 관련된 통찰
+        8. 선호하는 학습/행동 방식의 효과성
         
-        특히 다음 사항들을 분석에 반영해주세요:
-        - 사용자의 목표(AI/자동화/블록체인 학습, 창업)와 현재 상황의 연관성
-        - 자기주도적 학습 선호도와 현재 대처 방식의 관계
-        - 실전 중심의 학습 스타일이 현재 상황에 어떻게 적용될 수 있는지
-        
+        === 하루 활동 타임라인 ===
+        {timeline_text}
+
+        === 일기 내용 ===
+        {journal_data["journal"]}
+
         분석과 질문을 다음과 같은 형식으로 작성해주세요:
 
         [분석]
@@ -80,11 +98,7 @@ class ReflectionAnalyzer:
         [질문]
         1. 첫 번째 질문
         2. 두 번째 질문
-        ...
-        (7-8개의 질문 작성)
-
-        일기 내용:
-        {journal_content}"""
+        ..."""
 
         chat = self.model.start_chat()
         response = chat.send_message(prompt)
@@ -121,13 +135,12 @@ class ReflectionAnalyzer:
             
             # 1. Gemini로 분석 및 초기 질문 생성
             result = await self.get_gemini_analysis(journal_content, mbti)
-            print(f"Gemini analysis: {result.analysis}")
-            print(f"Gemini questions: {result.questions}")
+            print(f"Gemini questions generated: {len(result.questions)} questions")
             
             # 2. GPT-4o-mini로 질문 정제 및 포맷팅
             formatted = await self.formatter_agent.run(
-                f"""Gemini가 생성한 다음 분석과 질문들을 5개의 명확하고 통찰력 있는 질문으로 정리해주세요.
-                
+                f"""다음 분석과 질문들을 검토하여 가장 통찰력 있는 5개의 질문을 선택하고 정제해주세요.
+
 분석 내용:
 {result.analysis}
 

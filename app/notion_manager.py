@@ -215,9 +215,21 @@ class NotionManager:
             print(f"Error generating daily timeline: {str(e)}")
             raise
 
-    async def get_todays_journal(self, diary_db_id: str, date: datetime) -> Optional[str]:
+    async def get_todays_journal(self, diary_db_id: str, date: datetime) -> Optional[dict]:
         try:
-            response = self.client.databases.query(
+            # 1. 타임라인 페이지 조회
+            timeline_response = self.client.databases.query(
+                database_id=diary_db_id,
+                filter={
+                    "and": [
+                        {"property": "Date", "date": {"equals": date.strftime("%Y-%m-%d")}},
+                        {"property": "Type", "select": {"equals": "Timeline"}}
+                    ]
+                }
+            )
+
+            # 2. 일기 페이지 조회
+            journal_response = self.client.databases.query(
                 database_id=diary_db_id,
                 filter={
                     "and": [
@@ -227,23 +239,50 @@ class NotionManager:
                 }
             )
 
-            if not response["results"]:
-                return None
-
-            page_id = response["results"][0]["id"]
-            blocks = self.client.blocks.children.list(page_id)
-            
+            timeline_content = []
             journal_content = []
-            for block in blocks["results"]:
-                if block["type"] in ["paragraph", "quote"] and not block["has_children"]:
-                    text = block[block["type"]].get("rich_text", [])
-                    if text:
-                        journal_content.append(text[0]["plain_text"])
 
-            return "\n".join(journal_content)
+            # 타임라인 내용 가져오기
+            if timeline_response["results"]:
+                timeline_blocks = self.client.blocks.children.list(
+                    timeline_response["results"][0]["id"]
+                )
+                
+                current_activity = {}
+                for block in timeline_blocks["results"]:
+                    if block["type"] == "heading_3":  # 시간
+                        if current_activity:  # 이전 활동 저장
+                            timeline_content.append(current_activity)
+                        current_activity = {
+                            "time": block["heading_3"]["rich_text"][0]["text"]["content"]
+                        }
+                    elif block["type"] == "paragraph" and current_activity.get("time"):  # 활동 제목
+                        current_activity["activity"] = block["paragraph"]["rich_text"][0]["text"]["content"]
+                    elif block["type"] == "callout" and current_activity.get("time"):  # 생각/감정
+                        current_activity["thoughts"] = block["callout"]["rich_text"][0]["text"]["content"]
+
+                if current_activity:  # 마지막 활동 저장
+                    timeline_content.append(current_activity)
+
+            # 일기 내용 가져오기
+            if journal_response["results"]:
+                journal_blocks = self.client.blocks.children.list(
+                    journal_response["results"][0]["id"]
+                )
+                
+                for block in journal_blocks["results"]:
+                    if block["type"] in ["paragraph", "quote"] and not block["has_children"]:
+                        text = block[block["type"]].get("rich_text", [])
+                        if text:
+                            journal_content.append(text[0]["plain_text"])
+
+            return {
+                "timeline": timeline_content,
+                "journal": "\n".join(journal_content)
+            }
 
         except Exception as e:
-            print(f"Error getting today's journal: {str(e)}")
+            print(f"Error getting today's contents: {str(e)}")
             raise
 
     async def add_user_to_admin_db(self, user_data: dict, database_ids: Dict[str, str]):
