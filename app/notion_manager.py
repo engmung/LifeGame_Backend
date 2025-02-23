@@ -147,47 +147,41 @@ class NotionManager:
                     "object": "block",
                     "type": "heading_1",
                     "heading_1": {
-                        "rich_text": [{"text": {"content": "🕒 하루 활동 기록"}}]
+                        "rich_text": [{"text": {"content": "🕒 활동 기록"}}]
                     }
                 }
             ]
 
             # 각 활동에 대한 블록 추가
             for activity in sorted_activities:
-                content_blocks.extend([
-                    {
-                        "object": "block",
-                        "type": "heading_3",
-                        "heading_3": {
-                            "rich_text": [{"text": {"content": f"{activity['startTime']} - {activity['endTime']}"}}]
-                        }
-                    },
-                    {
-                        "object": "block",
-                        "type": "paragraph",
-                        "paragraph": {
-                            "rich_text": [{"text": {"content": activity['title']}}]
-                        }
+                # 활동과 시간
+                content_blocks.append({
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [
+                            {
+                                "text": {"content": f"{activity['title']} "},
+                                "annotations": {"bold": True}
+                            },
+                            {
+                                "text": {"content": f"({activity['startTime']} - {activity['endTime']})"}
+                            }
+                        ]
                     }
-                ])
+                })
                 
+                # 생각이나 감정이 있는 경우
                 if activity.get('thoughts'):
                     content_blocks.append({
                         "object": "block",
-                        "type": "callout",
-                        "callout": {
-                            "rich_text": [{"text": {"content": activity['thoughts']}}],
-                            "icon": {"emoji": "💭"}
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{"text": {"content": activity['thoughts']}}]
                         }
                     })
-                
-                content_blocks.append({
-                    "object": "block",
-                    "type": "divider",
-                    "divider": {}
-                })
 
-            # 타임라인 페이지 생성
+            # 노션 페이지 생성
             self.client.pages.create(
                 parent={"database_id": diary_db_id},
                 properties={
