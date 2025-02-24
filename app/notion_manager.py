@@ -70,22 +70,16 @@ class NotionManager:
     async def get_user_data(self, user_name: str) -> Optional[Dict[str, Any]]:
         """Admin DB에서 사용자 데이터를 가져옵니다."""
         try:
-            print(f"Debug - Fetching user data for: {user_name}")
-            
             response = self.admin_client.databases.query(
                 database_id=self.users_db_id,
                 filter={"property": "Name", "title": {"equals": user_name}}
             )
-            
-            print("Debug - Database query response:", response)
             
             if not response["results"]:
                 return None
 
             user_page = response["results"][0]
             blocks = self.admin_client.blocks.children.list(user_page["id"])
-            
-            print("Debug - User page blocks:", blocks)
             
             user_data = {
                 "notion_api_key": None,
@@ -97,7 +91,6 @@ class NotionManager:
             for block in blocks["results"]:
                 if block["type"] == "paragraph" and block["paragraph"]["rich_text"]:
                     text = block["paragraph"]["rich_text"][0]["text"]["content"]
-                    print(f"Debug - Processing block text: {text}")
                     
                     if text.startswith("Notion API Key:"):
                         user_data["notion_api_key"] = text.replace("Notion API Key:", "").strip()
@@ -113,7 +106,6 @@ class NotionManager:
                     except json.JSONDecodeError:
                         print("Error parsing database IDs")
 
-            print("Debug - Final user_data:", user_data)
             return user_data
             
         except Exception as e:
@@ -212,11 +204,6 @@ class NotionManager:
     async def add_user_to_admin_db(self, user_data: dict, database_ids: Dict[str, str]):
         """Admin DB에 사용자 정보를 추가합니다."""
         try:
-            print("Debug - Full user_data:", user_data)  # 전체 데이터 출력
-            print("Debug - API Keys:", {
-                "notion": user_data.get("notionApiKey"),
-                "gemini": user_data.get("geminiApiKey")
-            })
             
             user_page = self.admin_client.pages.create(
                 parent={"database_id": self.users_db_id},
@@ -267,15 +254,12 @@ class NotionManager:
                 }
             ]
 
-            print("Debug - Created blocks:", blocks)  # 생성된 blocks 출력
-
             # Append blocks
             response = self.admin_client.blocks.children.append(
                 block_id=user_page["id"],
                 children=blocks
             )
             
-            print("Debug - Notion API Response:", response)  # Notion API 응답 출력
             
             return user_page["id"]
         except Exception as e:
