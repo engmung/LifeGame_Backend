@@ -14,8 +14,11 @@ class QuestionsResponse(BaseModel):
     questions: List[str]
 
 class ReflectionAnalyzer:
-    def __init__(self):
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+    def __init__(self, gemini_api_key: str = None):
+        if not gemini_api_key:
+            raise ValueError("Gemini API key is required")
+            
+        genai.configure(api_key=gemini_api_key)
         self.generation_config = {
             "temperature": 0.7,
             "top_p": 0.95,
@@ -49,7 +52,7 @@ class ReflectionAnalyzer:
             {"questions": ["질문1", "질문2", "질문3", "질문4", "질문5"]}"""
         )
         
-        self.character_info = {
+        self.user_info = {
             'goals': None,
             'preferences': None
         }
@@ -71,8 +74,8 @@ class ReflectionAnalyzer:
         
         사용자 정보:
         - MBTI: {mbti}
-        - 목표: {self.character_info.get('goals', '정보 없음')}
-        - 선호도: {self.character_info.get('preferences', '정보 없음')}
+        - 목표: {self.user_info.get('goals', '정보 없음')}
+        - 선호도: {self.user_info.get('preferences', '정보 없음')}
         
         다음 관점들을 고려하여 분석과 5개의 질문을 생성해주세요:
         1. 순간의 감정과 회고 시점의 감정 차이
@@ -129,9 +132,9 @@ class ReflectionAnalyzer:
 
     async def generate_questions(self, journal_content: str, mbti: str, goals: str = None, preferences: str = None) -> List[str]:
         try:
-            # 캐릭터 정보 업데이트
-            self.character_info['goals'] = goals
-            self.character_info['preferences'] = preferences
+            # 사용자 정보 업데이트
+            self.user_info['goals'] = goals
+            self.user_info['preferences'] = preferences
             
             # 1. Gemini로 분석 및 초기 질문 생성
             result = await self.get_gemini_analysis(journal_content, mbti)
