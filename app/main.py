@@ -14,9 +14,15 @@ load_dotenv()
 app = FastAPI()
 
 # Configure CORS
+origins = [
+    "https://lifegamedev.vercel.app",  # Production frontend
+    "http://localhost:3000",           # Local development frontend
+    "http://localhost:5173",           # Vite default development port
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
