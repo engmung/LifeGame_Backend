@@ -302,30 +302,27 @@ class NotionManager:
 
             # 각 활동에 대한 블록 추가
             for activity in sorted_activities:
-                # 활동과 시간
+                # 활동 제목과 시간
                 content_blocks.append({
                     "object": "block",
                     "type": "paragraph",
                     "paragraph": {
                         "rich_text": [
                             {
-                                "text": {"content": f"{activity['title']} "},
+                                "text": {"content": f"**{activity['title']}** ({activity['startTime']} - {activity['endTime']})"},
                                 "annotations": {"bold": True}
-                            },
-                            {
-                                "text": {"content": f"({activity['startTime']} - {activity['endTime']})"}
                             }
                         ]
                     }
                 })
                 
-                # 생각이나 감정이 있는 경우
+                # 생각이나 감정이 있는 경우 - 4칸 띄어쓰기 적용
                 if activity.get('thoughts'):
                     content_blocks.append({
                         "object": "block",
                         "type": "paragraph",
                         "paragraph": {
-                            "rich_text": [{"text": {"content": activity['thoughts']}}]
+                            "rich_text": [{"text": {"content": f"    {activity['thoughts']}"}}]
                         }
                     })
 
@@ -348,7 +345,7 @@ class NotionManager:
                     "Date": {"date": {"start": date.strftime("%Y-%m-%d")}},
                     "Type": {"select": {"name": "Journal"}}
                 },
-                children=[]  # 완전히 빈 페이지
+                children=[]
             )
 
             return True
@@ -356,7 +353,7 @@ class NotionManager:
         except Exception as e:
             print(f"Error generating daily timeline: {str(e)}")
             raise
-
+    
     async def get_todays_journal(self, diary_db_id: str, date: datetime) -> Optional[dict]:
         """오늘의 타임라인과 일기 내용을 가져옵니다."""
         try:
