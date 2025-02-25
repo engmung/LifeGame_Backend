@@ -299,7 +299,7 @@ class NotionManager:
                     "paragraph": {
                         "rich_text": [
                             {
-                                "text": {"content": f"**{activity['title']}** ({activity['startTime']} - {activity['endTime']})"},
+                                "text": {"content": f"{activity['title']} ({activity['startTime']} - {activity['endTime']})"},
                                 "annotations": {"bold": True}
                             }
                         ]
