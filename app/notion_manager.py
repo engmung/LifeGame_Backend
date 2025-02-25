@@ -81,11 +81,17 @@ class NotionManager:
             user_page = response["results"][0]
             blocks = self.admin_client.blocks.children.list(user_page["id"])
             
+            # 사용자 상태 가져오기
+            status = "Inactive"
+            if "Status" in user_page["properties"] and user_page["properties"]["Status"]["select"]:
+                status = user_page["properties"]["Status"]["select"]["name"]
+            
             user_data = {
                 "notion_api_key": None,
                 "notion_url": None,
                 "gemini_api_key": None,
-                "database_ids": {}
+                "database_ids": {},
+                "status": status  # 상태 정보 추가
             }
 
             for block in blocks["results"]:
@@ -127,6 +133,72 @@ class NotionManager:
             )
         except Exception as e:
             print(f"Error saving user: {str(e)}")
+            raise
+
+    async def add_user_to_admin_db(self, user_data: dict, database_ids: Dict[str, str]):
+        """Admin DB에 사용자 정보를 추가합니다."""
+        try:
+            
+            user_page = self.admin_client.pages.create(
+                parent={"database_id": self.users_db_id},
+                properties={
+                    "Name": {"title": [{"text": {"content": user_data["characterName"]}}]},
+                    "Status": {"select": {"name": "Inactive"}}  # 기본 상태를 Inactive로 변경
+                }
+            )
+
+            # Create blocks
+            blocks = [
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [{
+                            "text": {"content": f"Notion API Key: {user_data.get('notionApiKey', 'N/A')}"}
+                        }]
+                    }
+                },
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [{
+                            "text": {"content": f"Gemini API Key: {user_data.get('geminiApiKey', 'N/A')}"}
+                        }]
+                    }
+                },
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [{
+                            "text": {"content": f"Notion URL: {user_data.get('notionPageUrl', 'N/A')}"}
+                        }]
+                    }
+                },
+                {
+                    "object": "block",
+                    "type": "code",
+                    "code": {
+                        "language": "json",
+                        "rich_text": [{
+                            "text": {"content": json.dumps(database_ids, ensure_ascii=False)}
+                        }]
+                    }
+                }
+            ]
+
+            # Append blocks
+            response = self.admin_client.blocks.children.append(
+                block_id=user_page["id"],
+                children=blocks
+            )
+            
+            
+            return user_page["id"]
+        except Exception as e:
+            print(f"Error adding user to admin DB: {str(e)}")
+            print(f"Error details: {e.__dict__}")  # 에러 상세 정보 출력
             raise
 
     async def update_user(self, db_id: str, user_data: dict):
@@ -199,72 +271,6 @@ class NotionManager:
 
         except Exception as e:
             print(f"Error getting user info: {str(e)}")
-            raise
-
-    async def add_user_to_admin_db(self, user_data: dict, database_ids: Dict[str, str]):
-        """Admin DB에 사용자 정보를 추가합니다."""
-        try:
-            
-            user_page = self.admin_client.pages.create(
-                parent={"database_id": self.users_db_id},
-                properties={
-                    "Name": {"title": [{"text": {"content": user_data["characterName"]}}]},
-                    "Status": {"select": {"name": "Active"}}
-                }
-            )
-
-            # Create blocks
-            blocks = [
-                {
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {
-                        "rich_text": [{
-                            "text": {"content": f"Notion API Key: {user_data.get('notionApiKey', 'N/A')}"}
-                        }]
-                    }
-                },
-                {
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {
-                        "rich_text": [{
-                            "text": {"content": f"Gemini API Key: {user_data.get('geminiApiKey', 'N/A')}"}
-                        }]
-                    }
-                },
-                {
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {
-                        "rich_text": [{
-                            "text": {"content": f"Notion URL: {user_data.get('notionPageUrl', 'N/A')}"}
-                        }]
-                    }
-                },
-                {
-                    "object": "block",
-                    "type": "code",
-                    "code": {
-                        "language": "json",
-                        "rich_text": [{
-                            "text": {"content": json.dumps(database_ids, ensure_ascii=False)}
-                        }]
-                    }
-                }
-            ]
-
-            # Append blocks
-            response = self.admin_client.blocks.children.append(
-                block_id=user_page["id"],
-                children=blocks
-            )
-            
-            
-            return user_page["id"]
-        except Exception as e:
-            print(f"Error adding user to admin DB: {str(e)}")
-            print(f"Error details: {e.__dict__}")  # 에러 상세 정보 출력
             raise
 
     async def generate_daily_timeline(self, diary_db_id: str, date: datetime, activities: List[dict]) -> str:
@@ -410,23 +416,25 @@ class NotionManager:
             raise
 
     async def generate_reflection_questions(
-        self, 
-        diary_db_id: str, 
-        date: datetime, 
-        journal_content: str, 
-        mbti: str,
-        goals: str = None,
-        preferences: str = None
-    ) -> str:
+    self, 
+    diary_db_id: str, 
+    date: datetime, 
+    journal_content: str, 
+    mbti: str,
+    goals: str = None,
+    preferences: str = None,
+    questions: List[str] = None
+) -> str:
         """성찰 질문을 생성하고 노션 페이지에 저장합니다."""
         try:
-            # AI를 사용하여 성찰 질문 생성
-            questions = await self.reflection_analyzer.generate_questions(
-                journal_content=journal_content,
-                mbti=mbti,
-                goals=goals,
-                preferences=preferences
-            )
+            # 질문이 전달되지 않은 경우 AI를 사용하여 성찰 질문 생성
+            if questions is None:
+                questions = await self.reflection_analyzer.generate_questions(
+                    journal_content=journal_content,
+                    mbti=mbti,
+                    goals=goals,
+                    preferences=preferences
+                )
             
             # 질문 페이지 생성
             content_blocks = [
@@ -492,3 +500,63 @@ class NotionManager:
         except Exception as e:
             print(f"Error generating reflection questions: {str(e)}")
             raise
+
+    async def log_activity(self, user_name: str, action: str, status: str = "Success", details: str = None):
+        """관리자 노션 페이지에 사용자 활동 로그를 기록합니다."""
+        try:
+            logs_db_id = os.getenv("ADMIN_LOGS_DB_ID")
+            if not logs_db_id or not self.admin_client:
+                print("로그 기록 실패: 로그 DB ID 또는 관리자 클라이언트가 없습니다.")
+                return
+
+            # 로그 페이지 생성
+            log_page = self.admin_client.pages.create(
+                parent={"database_id": logs_db_id},
+                properties={
+                    "Name": {"title": [{"text": {"content": f"{action} - {user_name}"}}]},
+                    "User": {"rich_text": [{"text": {"content": user_name}}]},
+                    "Action": {"select": {"name": action}},
+                    "Date": {"date": {"start": datetime.now().isoformat()}},
+                    "Status": {"select": {"name": status}}
+                }
+            )
+
+            # 세부 정보가 있는 경우 페이지 내용에 추가
+            if details:
+                blocks = [
+                    {
+                        "object": "block",
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{"text": {"content": "세부 정보:"}}]
+                        }
+                    },
+                    {
+                        "object": "block",
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{"text": {"content": details}}]
+                        }
+                    }
+                ]
+                
+                # 에러 메시지인 경우 다르게 표시
+                if status == "Error":
+                    blocks.append({
+                        "object": "block",
+                        "type": "callout",
+                        "callout": {
+                            "rich_text": [{"text": {"content": details}}],
+                            "icon": {"emoji": "⚠️"}
+                        }
+                    })
+                
+                self.admin_client.blocks.children.append(
+                    block_id=log_page["id"],
+                    children=blocks
+                )
+
+            return log_page["id"]
+        except Exception as e:
+            print(f"로그 기록 중 오류 발생: {str(e)}")
+            return None
