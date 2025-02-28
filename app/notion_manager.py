@@ -316,22 +316,22 @@ class NotionManager:
                         }
                     })
 
-            # 노션 페이지 생성
+            # 노션 페이지 생성 - 제목에서 날짜 제거
             self.client.pages.create(
                 parent={"database_id": diary_db_id},
                 properties={
-                    "Title": {"title": [{"text": {"content": date.strftime("%Y-%m-%d 타임라인")}}]},
+                    "Title": {"title": [{"text": {"content": "타임라인"}}]},
                     "Date": {"date": {"start": date.strftime("%Y-%m-%d")}},
                     "Type": {"select": {"name": "Timeline"}}
                 },
                 children=content_blocks
             )
 
-            # 빈 일기 페이지 생성
+            # 빈 일기 페이지 생성 - 제목에서 날짜 제거
             self.client.pages.create(
                 parent={"database_id": diary_db_id},
                 properties={
-                    "Title": {"title": [{"text": {"content": date.strftime("%Y-%m-%d 일기")}}]},
+                    "Title": {"title": [{"text": {"content": "일기"}}]},
                     "Date": {"date": {"start": date.strftime("%Y-%m-%d")}},
                     "Type": {"select": {"name": "Journal"}}
                 },
@@ -460,7 +460,7 @@ class NotionManager:
                 }
             ]
 
-            # 각 질문을 블록으로 추가
+            # 각 질문과 답변 공간을 블록으로 추가
             for idx, question in enumerate(questions, 1):
                 content_blocks.extend([
                     {
@@ -479,16 +479,30 @@ class NotionManager:
                     },
                     {
                         "object": "block",
+                        "type": "heading_3",
+                        "heading_3": {
+                            "rich_text": [{"text": {"content": f"A{idx}."}}]
+                        }
+                    },
+                    {
+                        "object": "block",
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{"text": {"content": ""}}]
+                        }
+                    },
+                    {
+                        "object": "block",
                         "type": "divider",
                         "divider": {}
                     }
                 ])
 
-            # 노션 페이지 생성
+            # 노션 페이지 생성 - 제목에서 날짜 제거
             response = self.client.pages.create(
                 parent={"database_id": diary_db_id},
                 properties={
-                    "Title": {"title": [{"text": {"content": date.strftime("%Y-%m-%d 성찰 질문")}}]},
+                    "Title": {"title": [{"text": {"content": "성찰 질문"}}]},
                     "Date": {"date": {"start": date.strftime("%Y-%m-%d")}},
                     "Type": {"select": {"name": "Questions"}}
                 },
