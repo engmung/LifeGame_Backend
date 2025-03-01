@@ -96,9 +96,13 @@ async def create_user(settings: UserSettings):
                 }
             
             # 사용자가 업데이트를 확인한 경우
+            # API 키 업데이트된 것 적용
+            updated_notion_api_key = settings.notionApiKey or existing_user["notion_api_key"]
+            updated_gemini_api_key = settings.geminiApiKey or existing_user["gemini_api_key"]
+            
             user_notion = NotionManager(
-                user_api_key=existing_user["notion_api_key"],
-                gemini_api_key=existing_user["gemini_api_key"]
+                user_api_key=updated_notion_api_key,
+                gemini_api_key=updated_gemini_api_key
             )
             
             # Character DB에서 MBTI, 목표, 선호도만 업데이트
@@ -110,12 +114,45 @@ async def create_user(settings: UserSettings):
                 settings.preferences
             )
             
+            # 관리자 DB의 API 키 정보 업데이트
+            blocks = admin_notion.admin_client.blocks.children.list(existing_user["id"])
+            
+            for block in blocks["results"]:
+                if block["type"] == "paragraph" and block["paragraph"]["rich_text"]:
+                    text = block["paragraph"]["rich_text"][0]["text"]["content"]
+                    
+                    # Notion API Key 업데이트
+                    if text.startswith("Notion API Key:") and settings.notionApiKey:
+                        admin_notion.admin_client.blocks.update(
+                            block_id=block["id"],
+                            paragraph={
+                                "rich_text": [{
+                                    "text": {"content": f"Notion API Key: {settings.notionApiKey}"}
+                                }]
+                            }
+                        )
+                    
+                    # Gemini API Key 업데이트
+                    elif text.startswith("Gemini API Key:") and settings.geminiApiKey:
+                        admin_notion.admin_client.blocks.update(
+                            block_id=block["id"],
+                            paragraph={
+                                "rich_text": [{
+                                    "text": {"content": f"Gemini API Key: {settings.geminiApiKey}"}
+                                }]
+                            }
+                        )
+            
             # 사용자 업데이트 로그 기록
             update_details = f"MBTI: {settings.mbti}\n"
             if settings.goals:
                 update_details += f"목표: {settings.goals}\n"
             if settings.preferences:
                 update_details += f"선호도: {settings.preferences}\n"
+            if settings.notionApiKey:
+                update_details += "Notion API Key: 업데이트됨\n"
+            if settings.geminiApiKey:
+                update_details += "Gemini API Key: 업데이트됨\n"
             
             await admin_notion.log_activity(
                 settings.characterName,

@@ -67,6 +67,8 @@ class NotionManager:
             print(f"Error updating character info: {str(e)}")
             raise
 
+    # notion_manager.py의 get_user_data 메서드 수정
+
     async def get_user_data(self, user_name: str) -> Optional[Dict[str, Any]]:
         """Admin DB에서 사용자 데이터를 가져옵니다."""
         try:
@@ -87,6 +89,7 @@ class NotionManager:
                 status = user_page["properties"]["Status"]["select"]["name"]
             
             user_data = {
+                "id": user_page["id"],  # 사용자 페이지 ID 추가
                 "notion_api_key": None,
                 "notion_url": None,
                 "gemini_api_key": None,
@@ -118,7 +121,7 @@ class NotionManager:
             print(f"Error getting user data: {str(e)}")
             print(f"Error details: {e.__dict__}")
             raise
-
+        
     async def save_user(self, db_id: str, name: str, mbti: str, goals: str = None, preferences: str = None):
         """사용자 데이터베이스에 새 사용자를 저장합니다."""
         try:
